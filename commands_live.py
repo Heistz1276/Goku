@@ -33,7 +33,7 @@ async def live_status(interaction: discord.Interaction):
     embed.add_field(name="Base channels (not tickets)", value=" ".join(f"<#{i}>" for i in sorted(LIVE_IGNORE_IDS)) or "None", inline=False)
     embed.add_field(name="Bots read", value=" ".join(f"<@{i}>" for i in sorted(LIVE_BOT_IDS)), inline=True)
     embed.add_field(name="Join bots (every ping = helper)", value=" ".join(f"<@{i}>" for i in sorted(LIVE_JOIN_BOT_IDS)), inline=True)
-    embed.add_field(name="Live posts", value=f"<#{LIVE_POST_ID}>", inline=True)
+    embed.add_field(name="Live posts", value="Inside each ticket", inline=True)
     embed.add_field(name="Open tracked", value="\n".join(open_tickets) if open_tickets else "None right now", inline=False)
     if LIVE_SEEN:
         embed.add_field(name="Other bots seen in ticket channels (not tracked)", inline=False,
@@ -47,7 +47,7 @@ async def live_list(interaction: discord.Interaction):
                       (interaction.guild_id,)).fetchall()
     lines = []
     for r in rows:
-        link = ref_url(interaction.guild_id, r["post_ref"], LIVE_POST_ID)
+        link = ref_url(interaction.guild_id, r["post_ref"], r["channel_id"])
         lines.append(f"<#{r['channel_id']}>  \u00b7  helpers **{len(json.loads(r['helpers_json']))}**  \u00b7  [live post]({link})")
     await interaction.response.send_message(embed=make_embed(
         "Open live posts", "\n".join(lines)[:3900] if lines else "Nothing is being tracked right now."),
@@ -146,7 +146,7 @@ async def sync_command(interaction: discord.Interaction):
         return
     lines = [f"<#{c.id}>  \u00b7  helpers joined: **{n}**" for c, n in results]
     await interaction.followup.send(embed=make_embed(
-        f"Synced {len(results)} backup(s)", "\n".join(lines)[:3900] + f"\nLive posts: <#{LIVE_POST_ID}>", 0x57F287),
+        f"Synced {len(results)} backup(s)", "\n".join(lines)[:3900] + "\nLive cards are posted inside each ticket.", 0x57F287),
         ephemeral=True, allowed_mentions=NO_PING)
 
 
