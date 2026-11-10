@@ -220,7 +220,27 @@ class LeaderboardView(discord.ui.LayoutView):
         self.add_item(card)
 
 
+def lead_heading(leaders: list[int]) -> str:
+    """DIVISION 3 IS ON LEAD!  (crown badge first). Built piece by piece so the emoji code is never upper-cased."""
+    crown = CROWN_EMOJI or "\u265B"
+    if not leaders:
+        return "NO DIVISION IS ON LEAD YET"
+    if len(leaders) == 1:
+        return f"{crown} DIVISION {leaders[0]} IS ON LEAD!"
+    return f"{crown} " + " \u00d7 ".join(f"DIVISION {d}" for d in leaders) + " ARE ON LEAD!"
+
+
+def division_block(d: int, members: list[str], empty_text: str, winner: bool = False) -> str:
+    """One division of the MVP log / live card: badge + name, then a quote with the count and the members."""
+    badge = DIV_EMOJI.get(d, "")           # the same badge emoji the leaderboard uses
+    medal = "  \u00b7  \U0001F3C6 MVP" if winner else ""
+    body = fit_list(members, 520) if members else empty_text
+    return f"## {badge} DIVISION {d:02d}{medal}\n> `COUNT` `{len(members):02d}`\n> {body}"
+
+
 class RaidLogView(discord.ui.LayoutView):
+    """The Division MVP Log card (division-logs channel)."""
+
     def __init__(self, raid_number: int, raiders: list[dict], skipped: list, winners: list[int], info_url: str,
                  images: bool = True, test: bool = False, lead: list[int] | None = None):
         super().__init__(timeout=None)
@@ -230,18 +250,16 @@ class RaidLogView(discord.ui.LayoutView):
             by_division[int(raider["division"])].append(f"<@{raider['user_id']}>")
 
         panel = discord.ui.Container(accent_colour=accent_for(winners))
-        panel.add_item(discord.ui.TextDisplay(f"**DIVISION MVP LOG**\n{lead_text(lead or [])}"))
+        panel.add_item(discord.ui.TextDisplay(f"# {lead_heading(lead or [])}\n# \U0001F4CB DIVISION MVP LOG"))
         if test:
             panel.add_item(discord.ui.TextDisplay("-# TEST PREVIEW  -  not counted anywhere"))
-        mvp = "  \u00d7  ".join(f"DIVISION {d:02d}" for d in winners) if winners else "No MVP awarded"
+        mvp = " \u00d7 ".join(f"DIVISION {d:02d}" for d in winners) if winners else "NONE"
+        second = f"> `MVP` `{mvp}`" + ("  \u00b7  `+1 LEADERBOARD`" if winners and not test else "")
         panel.add_item(discord.ui.TextDisplay(
-            f"**RAID {raid_number:04d}**  ·  RAIDERS COUNTED `{len(raiders):02d}`\n**MVP:** {mvp}"))
+            f"> `RAID` `#{raid_number:04d}`  \u00b7  `RAIDERS COUNTED` `{len(raiders):02d}`\n{second}"))
         panel.add_item(discord.ui.Separator())
         for d in range(1, 6):
-            members = by_division[d]
-            head = f"**DIVISION {d:02d}**  ·  COUNT: `{tallies[d]:02d}`" + ("  **MVP**" if d in winners else "")
-            body = fit_list(members, 520) if members else "No raiders"
-            panel.add_item(division_section(f"{head}\n{body}", d, images))
+            panel.add_item(discord.ui.TextDisplay(division_block(d, by_division[d], "No raiders", d in winners)))
             panel.add_item(discord.ui.Separator())
         notes = []
         if skipped:
@@ -281,7 +299,8 @@ class TicketSessionInfoView(discord.ui.View):
 
 
 class LiveTicketView(discord.ui.LayoutView):
-    """One live post per ticket/backup: divisions 1 to 5 always listed, every helper mentioned under their division."""
+    """Short live card posted INSIDE the Crusher ticket. Same look as the MVP log, no buttons.
+    (ticket_url / voice_url / mirrored are accepted only so older callers keep working.)"""
 
     def __init__(self, guild_id: int, st: dict, images: bool = True, ticket_url: str | None = None,
                  voice_url: str | None = None, mirrored: bool = False, test: bool = False, archived: bool = False):
@@ -299,68 +318,29 @@ class LiveTicketView(discord.ui.LayoutView):
         leaders = leaders_of({d: len(m) for d, m in by_division.items()})
 
         panel = discord.ui.Container(accent_colour=0x57F287 if live else 0x747F8D)
-        title = "DIVISION BACKUP LOG" if archived else ("LIVE DIVISION RAID" if live else "DIVISION RAID - CLOSED")
-        panel.add_item(discord.ui.TextDisplay(f"{title}\n{lead_text(leaders)}"))
+        title = "DIVISION BACKUP LOG" if archived else ("LIVE DIVISION BACKUP" if live else "DIVISION BACKUP - CLOSED")
+        panel.add_item(discord.ui.TextDisplay(f"# {lead_heading(leaders)}\n# \U0001F4CB {title}"))
         if test:
             panel.add_item(discord.ui.TextDisplay("-# TEST PREVIEW  -  not tracked"))
         if st.get("opener_id"):
-            opener = f"<@{st['opener_id']}>" + (f"  (D{st['opener_division']})" if st.get("opener_division") else "")
+            opener = f"<@{st['opener_id']}>" + (f" (D{st['opener_division']})" if st.get("opener_division") else "")
         else:
             opener = "waiting for the ticket message"
-        head = f"**TICKET**  `#{st['name']}`  \u00b7  HELPERS JOINED `{counted:02d}`"
+        first = f"> `TICKET` `#{st['name']}`  \u00b7  `HELPERS JOINED` `{counted:02d}`"
         if st.get("total") is not None and int(st["total"]) != counted:
-            head += f"  (ticket shows `{int(st['total']):02d}`)"
-        panel.add_item(discord.ui.TextDisplay(f"{head}\n**Opened by:** {opener}"))
+            first += f"  \u00b7  `TICKET SHOWS` `{int(st['total']):02d}`"
+        second = f"> `STATUS` `{'LIVE' if live else 'CLOSED'}`  \u00b7  `OPENED BY` {opener}"
+        panel.add_item(discord.ui.TextDisplay(f"{first}\n{second}"))
         panel.add_item(discord.ui.Separator())
-        details = st.get("details", {})
-        detail_sections = (
-            ("🌐 Server Region", details.get("Server Region") or details.get("Region")),
-            ("👥 Reported Players", details.get("Reported Players") or details.get("Players")),
-            ("⚠️ Difficulty Level", details.get("Difficulty Level") or details.get("Difficulty")),
-            ("📝 Description", details.get("Description")),
-            ("📡 Session Info", details.get("Session Info") or details.get("Server Location")),
-        )
-        for label, value in detail_sections:
-            if value:
-                rows = [part.strip().replace("`", "ˋ") for part in str(value).splitlines() if part.strip()]
-                if label.startswith("👥") and len(rows) == 1:
-                    rows = [part.strip().replace("`", "ˋ") for part in re.split(r",\s*", rows[0]) if part.strip()]
-                boxed = "\n".join(f"> `{part[:220]}`" for part in rows[:8])
-            else:
-                boxed = "> `Waiting for Crusher ticket details…`"
-            panel.add_item(discord.ui.TextDisplay(f"### {label}\n{boxed}"))
-            panel.add_item(discord.ui.Separator())
         for d in range(1, 6):
-            members = by_division[d]
-            body = fit_list(members, 520) if members else "No helpers yet"
-            panel.add_item(division_section(f"**DIVISION {d:02d}**  ·  COUNT: `{len(members):02d}`\n{body}", d, images))
+            panel.add_item(discord.ui.TextDisplay(division_block(d, by_division[d], "No helpers yet")))
             panel.add_item(discord.ui.Separator())
         notes = []
         if no_division:
             notes.append(f"-# No division role (counted, not in a division): {fit_list(no_division, 300)}")
         stamp = int(datetime.now(timezone.utc).timestamp())
         notes.append(f"-# {'Live' if live else 'Closed'}  \u00b7  Updated <t:{stamp}:R>  \u00b7  {BOT_NAME}")
-        notes.append("### 💡 **DIVISION SUPPORT**\nUse Ticket Info for the original request and Join VC to coordinate.")
         panel.add_item(discord.ui.TextDisplay("\n".join(notes)))
-        if not archived:
-            bottom = discord.ui.ActionRow()
-            if mirrored and ticket_url:
-                bottom.add_item(discord.ui.Button(label="Ticket Info", url=ticket_url))
-                if voice_url:
-                    bottom.add_item(discord.ui.Button(label="Join VC", emoji="🔊", url=voice_url))
-                bottom.add_item(LeaderboardButton())
-            elif live or test:
-                bottom.add_item(discord.ui.Button(label="Open Ticket",
-                                                  url=ticket_url or channel_url(guild_id, st["channel_id"])))
-                bottom.add_item(LeaderboardButton())
-            else:
-                bottom.add_item(discord.ui.Button(label="Ticket Closed", style=discord.ButtonStyle.secondary, disabled=True))
-                bottom.add_item(LeaderboardButton())
-            panel.add_item(bottom)
-        else:
-            bottom = discord.ui.ActionRow()
-            bottom.add_item(LeaderboardButton())
-            panel.add_item(bottom)
         self.add_item(panel)
 
 
