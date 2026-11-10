@@ -11,7 +11,8 @@ async def help_command(interaction: discord.Interaction):
         "`/division` - a member's division and raid stats\n"
         "`/div-assists` - your divisional backup participation and MVP assists\n"
         "`/divisions` - how many members each division has\n"
-                "`/ping` - bot latency, uptime, servers, and members"))
+        "`/leaderboarddivision1` to `5` - top raiders of a division (anyone, anywhere)\n"
+        "`/ping` - bot latency, uptime, servers, and members"))
     embed.add_field(name="Live tracking", inline=False, value=(
         "`/sync` - sync every ongoing backup into the live tracking\n"
         "`/live status` `/live list` - what is watched / open posts\n"
@@ -51,7 +52,6 @@ async def status_command(interaction: discord.Interaction):
     embed.add_field(name="MVP results", value=f"<#{MVP_RESULTS_ID}>", inline=True)
     embed.add_field(name="Fixed leaderboard", value=f"<#{LEADERBOARD_ID}> · updated from MVP logs", inline=True)
     embed.add_field(name="Division ticket category", value=f"<#{DIV_TICKET_CATEGORY_ID}>", inline=True)
-    embed.add_field(name="Voice category", value=f"<#{DIV_VOICE_CATEGORY_ID}>", inline=True)
     embed.add_field(name="Division roles", value=" \u00b7 ".join(f"D{d}: <@&{r}>" for d, r in DIVISION_ROLES.items()), inline=False)
     embed.add_field(name="MVP awards", value=" \u00b7 ".join(f"D{d}: **{n}**" for d, n in totals.items()) + f"\n{lead_text(leaders_of(totals))}", inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True, allowed_mentions=NO_PING)
