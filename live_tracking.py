@@ -220,37 +220,17 @@ async def live_publish(guild: discord.Guild, st: dict) -> None:
 
 
 async def _live_publish_unlocked(guild: discord.Guild, st: dict) -> None:
-    mirror = mirror_by_division_channel(int(st["channel_id"]))
-    if mirror:
-        source = guild.get_channel(int(mirror["source_channel_id"]))
-        voice_id = mirror["voice_channel_id"]
-        voice_url = f"https://discord.com/channels/{guild.id}/{voice_id}" if voice_id else None
-        ticket_url = channel_url(guild.id, source.id if source else int(mirror["source_channel_id"]))
-        destination_id = int(st["channel_id"])
-    else:
-        if not LIVE_POST_ID:
-            return
-        ticket_url = channel_url(guild.id, int(st["channel_id"]))
-        voice_url = None
-        destination_id = LIVE_POST_ID
+    """The live card lives INSIDE the ticket itself (no extra channel, no voice room, no buttons).
+    It is posted once and then edited in place as helpers join."""
+    destination_id = int(st["channel_id"])
     try:
         ref = await send_or_edit(destination_id, st["post_ref"],
-            lambda _images: LiveTicketView(guild.id, st, False, ticket_url=ticket_url,
-                voice_url=voice_url, mirrored=bool(mirror)), with_files=False)
+                                 lambda _images: LiveTicketView(guild.id, st, False), with_files=False)
     except discord.HTTPException as exc:
-        print(f"Could not post the live ticket {st['name']}: {exc!r}")
+        print(f"Could not post the live card in {st['name']}: {exc!r}")
         return
     if ref != st["post_ref"]:
         st["post_ref"] = ref
-    if mirror and ref and ":" in ref:
-        try:
-            _, message_id = ref.split(":", 1)
-            destination = guild.get_channel(destination_id) or await bot.fetch_channel(destination_id)
-            message = await destination.fetch_message(int(message_id))
-            if not message.pinned:
-                await message.pin(reason="Pin live division ticket tracking")
-        except discord.HTTPException as exc:
-            print(f"Could not pin live tracking in division ticket {destination_id}: {exc!r}")
     live_store(st)
 
 
@@ -320,12 +300,21 @@ async def live_catch_up(st: dict, channel, skip_id: int | None = None) -> None:
         pass
 
 
+def live_has_info(st: dict) -> bool:
+    """True once Crusher has posted something the tracker can read (opener, helpers, total or details)."""
+    return bool(st.get("opener_id") or st.get("helpers") or st.get("total") is not None or st.get("details"))
+
+
 async def live_bootstrap(channel) -> None:
+    if mirror_by_source(channel.id):      # an older ticket that already has a Div mirror: leave it alone
+        return
     async with live_lock(channel.id):
         if live_load(channel.id) is not None:
             return
         st = live_new(channel)
         await live_catch_up(st, channel)
+        if not live_has_info(st):         # Crusher has not posted yet: the card appears after its first post
+            return
         live_refresh_divisions(st, channel.guild)
         live_store(st)
         await live_publish(channel.guild, st)
@@ -400,93 +389,6 @@ async def source_ticket_number(source: discord.TextChannel) -> int:
         if match:
             return int(match.group(1))
     return next_div_ticket_number()
-
-
-def division_ticket_overwrites(guild: discord.Guild, opener_id: int | None = None, *, voice: bool = False):
-    overwrites = {guild.default_role: discord.PermissionOverwrite(view_channel=False)}
-    for role_id in DIVISION_ROLES.values():
-        role = guild.get_role(role_id)
-        if role:
-            overwrites[role] = discord.PermissionOverwrite(
-                view_channel=True, read_message_history=True,
-                send_messages=not voice, connect=voice, speak=voice)
-    if guild.me:
-        overwrites[guild.me] = discord.PermissionOverwrite(
-            view_channel=True, read_message_history=True, send_messages=not voice,
-            manage_channels=True, manage_messages=True, connect=voice, speak=voice)
-    if opener_id:
-        opener = guild.get_member(opener_id)
-        if opener:
-            overwrites[opener] = discord.PermissionOverwrite(
-                view_channel=True, read_message_history=True, send_messages=not voice,
-                connect=voice, speak=voice)
-    return overwrites
-
-
-async def create_division_ticket(source: discord.TextChannel) -> None:
-    # Duplicate delivery of a channel-created event must not create a second mirror.
-    # Hold one lock until the database link is committed, then re-check inside the lock.
-    async with mirror_create_lock(source.id):
-        if mirror_by_source(source.id):
-            return
-        await _create_division_ticket_unlocked(source)
-
-
-async def _create_division_ticket_unlocked(source: discord.TextChannel) -> None:
-    if mirror_by_source(source.id):
-        return
-    category = source.guild.get_channel(DIV_TICKET_CATEGORY_ID)
-    voice_category = source.guild.get_channel(DIV_VOICE_CATEGORY_ID)
-    if not isinstance(category, discord.CategoryChannel):
-        print(f"Division ticket category {DIV_TICKET_CATEGORY_ID} is missing or inaccessible.")
-        return
-    if not isinstance(voice_category, discord.CategoryChannel):
-        print(f"Division voice category {DIV_VOICE_CATEGORY_ID} is missing or inaccessible.")
-        return
-    ticket_number = await source_ticket_number(source)
-    opener_id = await get_ticket_opener(source)
-    guild = source.guild
-    try:
-        mirror = await guild.create_text_channel(
-            name=f"Div | {ticket_number:04d}", category=category,
-            topic=f"URA | DIV support mirror for Crusher ticket {source.id} · ticket #{ticket_number:04d}",
-            overwrites=division_ticket_overwrites(guild, opener_id),
-            reason=f"Mirror Crusher ticket #{ticket_number:04d} for division support")
-    except discord.HTTPException as exc:
-        print(f"Could not create division mirror for {source.name}: {exc!r}")
-        return
-
-    voice = None
-    try:
-        voice = await guild.create_voice_channel(
-            name=f"Div VC {ticket_number:04d}", category=voice_category,
-            overwrites=division_ticket_overwrites(guild, opener_id, voice=True),
-            reason=f"Voice room for division support ticket #{ticket_number:04d}")
-    except discord.HTTPException as exc:
-        print(f"Could not create voice room for division ticket #{ticket_number:04d}: {exc!r}")
-
-    db.execute("""INSERT OR REPLACE INTO ticket_mirrors
-        (source_channel_id,guild_id,division_channel_id,voice_channel_id,ticket_number,created_at)
-        VALUES (?,?,?,?,?,?)""",
-        (source.id, guild.id, mirror.id, voice.id if voice else None, ticket_number,
-         datetime.now(timezone.utc).isoformat()))
-    db.commit()
-
-    st = live_new(mirror)
-    st["opener_id"] = opener_id
-    if opener_id:
-        opener = await get_member(guild, opener_id)
-        st["opener_division"] = division_of(opener)[0] if opener else None
-    try:
-        async for old in source.history(limit=500, oldest_first=True):
-            if old.author.bot and not is_me(old.author):
-                await live_apply(st, guild, old)
-    except discord.HTTPException as exc:
-        print(f"Could not read Crusher ticket history for {source.name}: {exc!r}")
-    live_refresh_divisions(st, guild)
-    live_store(st)
-    await live_publish(guild, st)
-    print(f"Created division mirror #{ticket_number:04d}: {mirror.id} for source {source.id}.")
 
 
 async def live_ingest(message: discord.Message, channel=None) -> None:
@@ -628,7 +530,8 @@ def ticket_channels(guild: discord.Guild) -> list[discord.TextChannel]:
     out = []
     for category_id in LIVE_CATEGORY_IDS:
         category = guild.get_channel(category_id)
-        out += [c for c in getattr(category, "text_channels", []) if is_live_channel(c)]
+        out += [c for c in getattr(category, "text_channels", [])
+                if is_live_channel(c) and not mirror_by_source(c.id)]
     return out
 
 
@@ -642,6 +545,8 @@ async def live_sync_now(guild: discord.Guild) -> list[tuple[discord.TextChannel,
             st["status"] = "live"
             st["name"] = ticket.name
             await live_catch_up(st, ticket)
+            if not (live_has_info(st) or st.get("post_ref")):
+                continue                  # Crusher has not posted in this ticket yet
             live_refresh_divisions(st, guild)
             live_store(st)
             await live_publish(guild, st)
