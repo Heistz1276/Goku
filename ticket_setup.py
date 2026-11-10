@@ -35,17 +35,16 @@ async def auto_build(guild: discord.Guild) -> str:
     source = await make_text(guild, category, "raid-mvps", "Raid MVP logs from the MVP bot are posted here.", False)
     logs = await make_text(guild, category, "division-logs", "One post per MVP log.", True)
     results = await make_text(guild, category, "mvp-results", "One Division MVP result card per raid.", True)
-    live = await make_text(guild, category, "live-backups", "Live tracking: who joined each backup.", True)
     tickets = guild.get_channel(cfg_get(guild.id, "category") or ENV_DEFAULTS["category"])
     if not isinstance(tickets, discord.CategoryChannel):
         tickets = await guild.create_category("Tickets", reason=f"{BOT_NAME} auto build")
-    for key, ch in (("source", source), ("log", logs), ("results", results), ("live", live), ("category", tickets)):
+    for key, ch in (("source", source), ("log", logs), ("results", results), ("category", tickets)):
         cfg_set(guild.id, key, ch.id)
     apply_config(guild.id)
     await refresh_leaderboard(guild)
     await live_sync_now(guild)
     return (f"Built under **{category.name}**:\nMVP source: {source.mention}\nMVP results: {results.mention}\nDivision logs: {logs.mention}\n"
-            f"Live tracking: {live.mention}\nTicket category: **{tickets.name}**\n"
+            f"Ticket category: **{tickets.name}**  (live cards are posted inside each ticket)\n"
             f"Point your MVP bot at {source.mention}.")
 
 
@@ -83,7 +82,6 @@ PICKS = [
     ("source", "MVP source channel (where the MVP bot posts)", [discord.ChannelType.text]),
     ("results", "MVP results channel", [discord.ChannelType.text]),
     ("log", "Division logs channel", [discord.ChannelType.text]),
-    ("live", "Live tracking posts channel", [discord.ChannelType.text]),
     ("category", "Ticket / backup category", [discord.ChannelType.category]),
 ]
 
@@ -115,7 +113,6 @@ class PickSelect(discord.ui.ChannelSelect):
             "source": f"MVP logs will be read from {channel.mention}.",
             "results": f"The per-raid MVP result cards will be posted in {channel.mention}.",
             "log": f"Division MVP logs will be posted in {channel.mention}.",
-            "live": f"Live tracking posts will go to {channel.mention}.",
             "category": f"Every new channel in **{channel.name}** is now tracked as a backup/ticket.",
         }
         if self.key == "leaderboard":
