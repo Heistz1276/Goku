@@ -9,9 +9,15 @@ async def safe_step(label: str, coro) -> None:
         traceback.print_exc()
 
 
+async def sync_global_commands() -> None:
+    """The 5 division leaderboards are GLOBAL: they work for anyone, in any server or DM."""
+    synced = await bot.tree.sync()
+    print(f"Synced {len(synced)} global slash commands ({', '.join(c.name for c in synced)})")
+
+
 async def sync_commands(guild: discord.Guild) -> None:
+    """Everything else is registered for the URA server only."""
     target = discord.Object(id=guild.id)
-    bot.tree.copy_global_to(guild=target)
     synced = await bot.tree.sync(guild=target)
     print(f"Synced {len(synced)} slash commands to {guild.name}")
 
@@ -75,6 +81,7 @@ async def on_ready():
     except Exception:
         print("[startup] add_view failed:")
         traceback.print_exc()
+    await safe_step("global command sync", sync_global_commands())
     guilds = [bot.get_guild(GUILD_ID)] if GUILD_ID else list(bot.guilds)
     if GUILD_ID and guilds == [None]:
         print(f"[startup] The bot is not in server {GUILD_ID}. Invite it there, then restart.")
@@ -90,12 +97,6 @@ async def on_ready():
 @bot.event
 async def on_guild_join(guild: discord.Guild):
     """The bot was added to a server: register the commands and ask how to set it up."""
-    try:
-        target = discord.Object(id=guild.id)
-        bot.tree.copy_global_to(guild=target)
-        await bot.tree.sync(guild=target)
-    except Exception as exc:
-        print(f"Could not sync commands in {guild.id}: {exc!r}")
     channel = guild.system_channel
     if channel is None or not channel.permissions_for(guild.me).send_messages:
         channel = next((c for c in guild.text_channels if c.permissions_for(guild.me).send_messages), None)
@@ -170,13 +171,10 @@ async def on_guild_channel_create(channel):
     if not isinstance(channel, discord.TextChannel):
         return
     if channel.name.casefold().startswith("div |"):
-        return  # create_division_ticket bootstraps and pins this channel after saving its source link
-    possible_crusher_ticket = (channel.category_id == CRUSHER_TICKET_CATEGORY_ID if CRUSHER_TICKET_CATEGORY_ID
-                               else bool(re.search(r"ticket|backup|raid|support", channel.name, re.I)))
-    if possible_crusher_ticket and await is_crusher_ticket(channel):
-        await create_division_ticket(channel)
-        return
+        return  # an older Div mirror channel
     if is_live_channel(channel):
+        # No new channel and no voice room: the live card is posted inside this Crusher ticket,
+        # right after Crusher's first post (live_bootstrap waits until there is something to read).
         await live_bootstrap(channel)
 
 
