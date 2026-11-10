@@ -259,8 +259,7 @@ async def check_channels(guild: discord.Guild) -> None:
         needed = "View/History/Send" if needs_send else "View/History"
         print(f"  {label}: #{channel.name} ({cid})  {'ok' if ok else f'MISSING {needed} permission'}")
     for label, cid in (("Crusher source category", CRUSHER_TICKET_CATEGORY_ID),
-                       ("Division ticket category", DIV_TICKET_CATEGORY_ID),
-                       ("Division voice category", DIV_VOICE_CATEGORY_ID)):
+                       ("Division ticket category", DIV_TICKET_CATEGORY_ID)):
         channel = guild.get_channel(cid) if cid else None
         status = "audit-log detection" if label == "Crusher source category" and not cid else (
             "NOT FOUND" if channel is None else type(channel).__name__)
@@ -300,22 +299,6 @@ def register_saved_views(guild: discord.Guild) -> None:
             bot.add_view(build_log_view(guild.id, row, images=False), message_id=int(mid))
         except Exception as exc:
             print(f"Could not re-arm the buttons for raid {row['raid_number']}: {exc!r}")
-    for row in db.execute("SELECT * FROM live_tickets WHERE guild_id=? AND status='live' AND post_ref IS NOT NULL",
-                          (guild.id,)).fetchall():
-        mirror = mirror_by_division_channel(int(row["channel_id"]))
-        if not mirror:
-            continue
-        try:
-            _, mid = row["post_ref"].split(":", 1)
-            st = live_load(int(row["channel_id"]))
-            source = guild.get_channel(int(mirror["source_channel_id"]))
-            voice_id = mirror["voice_channel_id"]
-            bot.add_view(LiveTicketView(guild.id, st, False,
-                ticket_url=channel_url(guild.id, source.id if source else int(mirror["source_channel_id"])),
-                voice_url=f"https://discord.com/channels/{guild.id}/{voice_id}" if voice_id else None,
-                mirrored=True), message_id=int(mid))
-        except Exception as exc:
-            print(f"Could not re-arm live ticket buttons for {row['channel_id']}: {exc!r}")
 
 
 # ----------------------------------------------------------------------------
